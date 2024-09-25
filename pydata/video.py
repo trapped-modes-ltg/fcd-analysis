@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 from pydata.image import Image
 from tkinter import filedialog
 from time import sleep
+import glob 
 import os
 
 allowed_formats = (".jpg", ".png", ".tiff", ".bmp")  # TODO: implementar lectura de imágenes a color.
@@ -19,7 +20,7 @@ class Video:
         self.length = len(self.frames)
 
     def __read_metadata(self):
-        metadata_file = self.directory_path.split("/")[-1] + ".cih"
+        metadata_file = glob.glob(os.path.join(self.directory_path, "*.cih"))[0] # self.directory_path.split("/")[-1] + ".cih"
         metadata = {}
         with open(os.path.join(self.directory_path, metadata_file), 'r') as file:
             for line in file:
