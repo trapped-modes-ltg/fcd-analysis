@@ -7,8 +7,8 @@ from pydata.image import Image
 from pyfcd.fcd import FCD
 
 base_dir = os.path.dirname(__file__)
-displaced_image_path = os.path.join(base_dir, "example_images", "sessile_drop.png")
-reference_image_path = os.path.join(base_dir, "example_images", "reference.png")
+displaced_image_path = os.path.join(base_dir, "static_images", "sessile_drop.png")
+reference_image_path = os.path.join(base_dir, "static_images", "reference.png")
 
 displaced_image = Image(displaced_image_path, roi=-1)
 reference_image = Image(reference_image_path, roi=displaced_image.roi)
