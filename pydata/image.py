@@ -4,10 +4,12 @@ from tkinter import filedialog
 from pydata.roi import ROI
 import numpy as np
 import cv2
+from matplotlib.widgets import Slider, Button
+import warnings
 
 
 class Image:
-    def __init__(self, image_path=None, roi=None):
+    def __init__(self, image_path=None, roi=None, edge_configurations=None):
         self._path = image_path if image_path else filedialog.askopenfilename(title="Seleccionar imagen")
         self._original = self._read_image()
         self._roi = ROI(self, roi)  # TODO: tal vez que si tipo roi=-1 o algo así automáticamente se abra la selección. Pasar ROIs a parte de (x, y, w, h).
@@ -15,6 +17,17 @@ class Image:
             self.select_roi()
         self._processed = self.cropped()  # TODO: No me convence tener dos veces guardada la imagen, pero no se me ocurre otra forma de acumular las trasnformaciones.
 
+        self.edge_configurations = edge_configurations or {
+            'N': 11, 
+            'H': 5, 
+            'low_mask': 20, 
+            'high_mask': 255, 
+            'param1': 40, 
+            'param2': 20, 
+            'minRadius': 190, 
+            'maxRadius': 210
+        }
+        
     def _read_image(self):  # TODO: tal vez conviene que eto sea staticmethod y que se pueda usar fuera también.
         if self._path is not None:
             flag = cv2.IMREAD_UNCHANGED
@@ -83,11 +96,16 @@ class Image:
 
     def windowed(self, x_factor=0.02, y_factor=None):  # TODO: pasar funión ventana (tukey por defecto).
         y_factor = y_factor if y_factor else x_factor
-        window_1d_x = np.abs(tukey(self.roi[2], x_factor))
+        window_1d_x = np.abs(tukey(self.roi[2], x_factor)) # TODO: revisar.
         window_1d_y = np.abs(tukey(self.roi[3], y_factor))
-        window_2d = np.sqrt(np.outer(window_1d_y, window_1d_x))
+        window_2d = np.sqrt(np.outer(window_1d_y, window_1d_y))
         self._processed = window_2d * self._processed
         return self._processed
+
+    def blurred(self, N=None, H=None): # TODO: no actualiza el self._processed, pero es que para hallar los centros no quiero que lo haga. Tal vez cambiar el nombre, para que no se confunda con el otro naming scheme. 
+        N = N if N is not None else self.edge_configurations['N']
+        H = H if H is not None else self.edge_configurations['H']
+        return cv2.GaussianBlur(self._processed, (N, N), H)
 
     def masked(self, mask, background):
         mask = mask.copy() // np.max(mask)
@@ -145,37 +163,119 @@ class Image:
         mask = dist_from_center <= radius
         return mask
 
-    def make_blurred_mask(self, N=15, H=10, low=80, high=255, show_mask=False):
-        blurred_image = cv2.GaussianBlur(self._processed, (N, N), H)
-
-        _, binary = cv2.threshold(blurred_image, low, high, cv2.THRESH_BINARY)
-        kernel = np.ones((N, N), np.uint8)
+    def make_blurred_mask(self):  # TODO: No sé si vale la pena poner para que pasen opcionalmente otros N, H, low, high.
+        _, binary = cv2.threshold(self.blurred(), self.edge_configurations['low_mask'], self.edge_configurations['high_mask'], cv2.THRESH_BINARY)
+        kernel = np.ones((self.edge_configurations['N'], self.edge_configurations['N']), np.uint8)
         mask_close = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-        mask_open = cv2.morphologyEx(mask_close, cv2.MORPH_OPEN, kernel).astype(np.uint8)
-
-        if show_mask:
-            plt.imshow(mask_open)
-            plt.show()
+        mask_open = cv2.morphologyEx(mask_close, cv2.MORPH_OPEN, kernel).astype(np.uint8)        
         return mask_open
 
-    def edges(self, low, high):
-        return cv2.Canny(self.make_blurred_mask(), low, high)
+    def edges(self):
+        return cv2.Canny(self.make_blurred_mask(), 100, 200)
 
-    def get_circle_center(self, low=20, high=40, show_center=False):
-        circles = cv2.HoughCircles(self.edges(low, high), cv2.HOUGH_GRADIENT, dp=1, minDist=20, param1=40, param2=20,
-                                   minRadius=40, maxRadius=80)
-        center = (int(circles[0][0, 0]), int(circles[0][0, 1])) if circles is not None else None
-        if show_center and center:
-            plt.imshow(self._processed)
-            plt.scatter([center[0]], [center[1]])
+    def get_circle_centers(self, param1=40, param2=20, minRadius=190, maxRadius=210): 
+        circles = cv2.HoughCircles(self.edges(), cv2.HOUGH_GRADIENT, dp=1, minDist=min(self.roi[2:]), param1=param1, param2=param2, minRadius=minRadius, maxRadius=maxRadius)
+        return circles[0] if circles is not None else None # TODO: creo que acá se puede compactar este if.
+
+    def center_toroid(self, use_sliders=False):
+        if use_sliders: # TODO: no soy super fan de tener todo esto acá abajo. Probablemente lo encapsule en alguna otra función para que quede más prolijo (pero es puramente estético).
+            fig, axes = plt.subplots(1, 3, figsize=(15, 8))
+            plt.subplots_adjust(left=0.05, bottom=0.4, right=0.95, wspace=0.5)
+            
+            def update(val):
+                blurred_image = self.blurred()
+                mask = self.make_blurred_mask()
+                edges = self.edges()
+                circles = self.get_circle_centers()
+                
+                axes[0].cla()
+                axes[0].imshow(blurred_image, cmap='gray')
+                axes[1].cla()
+                axes[1].imshow(mask, cmap='gray')
+                axes[2].cla()
+                axes[2].imshow(edges, cmap='gray')
+                
+                for circle in circles:
+                    x, y, r = int(circle[0]), int(circle[1]), int(circle[2])
+                    axes[2].add_patch(plt.Circle((x, y), r, color='red', fill=False))
+                    
+                for ax in axes:
+                    ax.axis('off')
+                fig.canvas.draw_idle()
+
+            axcolor = 'lightgoldenrodyellow'
+            
+            ax_N = plt.axes([0.1, 0.25, 0.2, 0.03], facecolor=axcolor)
+            ax_H = plt.axes([0.1, 0.2, 0.2, 0.03], facecolor=axcolor)
+            slider_N = Slider(ax_N, 'N', 3, 31, valinit=self.edge_configurations['N'], valstep=2)
+            slider_H = Slider(ax_H, 'H', 1, 10, valinit=self.edge_configurations['H'])
+
+            ax_low_mask = plt.axes([0.4, 0.25, 0.2, 0.03], facecolor=axcolor)
+            ax_high_mask = plt.axes([0.4, 0.2, 0.2, 0.03], facecolor=axcolor)
+            slider_low_mask = Slider(ax_low_mask, 'Low Mask', 0, 255, valinit=self.edge_configurations['low_mask'])
+            slider_high_mask = Slider(ax_high_mask, 'High Mask', 0, 255, valinit=self.edge_configurations['high_mask'])
+
+            ax_param1 = plt.axes([0.7, 0.25, 0.2, 0.03], facecolor=axcolor)
+            ax_param2 = plt.axes([0.7, 0.2, 0.2, 0.03], facecolor=axcolor)
+            ax_minRadius = plt.axes([0.7, 0.15, 0.2, 0.03], facecolor=axcolor)
+            ax_maxRadius = plt.axes([0.7, 0.1, 0.2, 0.03], facecolor=axcolor)
+
+            slider_param1 = Slider(ax_param1, 'Param1', 0, 100, valinit=self.edge_configurations['param1'])
+            slider_param2 = Slider(ax_param2, 'Param2', 0, 100, valinit=self.edge_configurations['param2'])
+            slider_minRadius = Slider(ax_minRadius, 'Min Radius', 0, 300, valinit=self.edge_configurations['minRadius'])
+            slider_maxRadius = Slider(ax_maxRadius, 'Max Radius', 0, 300, valinit=self.edge_configurations['maxRadius'])
+
+            slider_N.on_changed(update)
+            slider_H.on_changed(update)
+            slider_low_mask.on_changed(update)
+            slider_high_mask.on_changed(update)
+            slider_param1.on_changed(update)
+            slider_param2.on_changed(update)
+            slider_minRadius.on_changed(update)
+            slider_maxRadius.on_changed(update)
+
+            ax_button = plt.axes([0.85, 0.03, 0.1, 0.04])
+            button = Button(ax_button, 'Print Config', color=axcolor, hovercolor='0.975')
+
+            def print_config(event):
+                config = {
+                    'N': int(slider_N.val),
+                    'H': int(slider_H.val),
+                    'low_mask': int(slider_low_mask.val),
+                    'high_mask': int(slider_high_mask.val),
+                    'param1': int(slider_param1.val),
+                    'param2': int(slider_param2.val),
+                    'minRadius': int(slider_minRadius.val),
+                    'maxRadius': int(slider_maxRadius.val)
+                }
+                print("Current Configurations:", config)
+
+            button.on_clicked(print_config)
+
+            def on_close(event):
+                self.edge_configurations['N'] = int(slider_N.val)
+                self.edge_configurations['H'] = int(slider_H.val)
+                self.edge_configurations['low_mask'] = int(slider_low_mask.val)
+                self.edge_configurations['high_mask'] = int(slider_high_mask.val)
+                self.edge_configurations['param1'] = int(slider_param1.val)
+                self.edge_configurations['param2'] = int(slider_param2.val)
+                self.edge_configurations['minRadius'] = int(slider_minRadius.val)
+                self.edge_configurations['maxRadius'] = int(slider_maxRadius.val)
+
+            fig.canvas.mpl_connect('close_event', on_close)
+            update(None)
             plt.show()
-        return center
 
-    def center_toroid(self):
-        new_center = self.get_circle_center()
-        new_center = self.roi.local_to_absolute(new_center)
-        self.roi = self.roi.new_roi_from_center(new_center)
-
+        centers = self.get_circle_centers()
+        if centers is not None:
+            center = self.roi.local_to_absolute((int(centers[0, 0]), int(centers[0, 1])))
+            self.roi = self.roi.new_roi_from_center(center)
+        else:
+            warnings.warn("No circle found.") # TODO: refinar esto (tipo el mensaje).
+            default_center = (self.roi[2] // 2, self.roi[3] // 2)
+            center = self.roi.local_to_absolute(default_center)
+            self.roi = self.roi.new_roi_from_center(center) # TODO: esta combinación de local2absolute y from_center tal vez se podrían combinar en una tercera función que haga ambas.
+    
     def show(self, axis=None, show_plot=True):
         if axis is None:
             fig, axis = plt.subplots()
