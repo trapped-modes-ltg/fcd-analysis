@@ -271,7 +271,7 @@ class Image:
             center = self.roi.local_to_absolute((int(centers[0, 0]), int(centers[0, 1])))
             self.roi = self.roi.new_roi_from_center(center)
         else:
-            warnings.warn("No circle found.") # TODO: refinar esto (tipo el mensaje).
+            warnings.warn("No circle found. Try updating the configurations.") # TODO: refinar esto (tipo el mensaje).
             default_center = (self.roi[2] // 2, self.roi[3] // 2)
             center = self.roi.local_to_absolute(default_center)
             self.roi = self.roi.new_roi_from_center(center) # TODO: esta combinación de local2absolute y from_center tal vez se podrían combinar en una tercera función que haga ambas.
