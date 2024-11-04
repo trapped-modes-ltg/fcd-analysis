@@ -62,7 +62,7 @@ class Video:
             yield self.next_frame()
 
     # TODO: Se podría agregar una función self.pre_process() llamada antes de show donde se haga el track y se pueda modificar desde afuera de la clase tipo decorator.
-    def show_movie(self, end_frame=None, pre_process=None):
+    def show_movie(self, end_frame=None, pre_process=None, close_on_finish=True):
         plt.ion()
         fig, ax = plt.subplots()
         ax.axis("off")
@@ -70,7 +70,7 @@ class Video:
         fig.canvas.draw()
         for frame in self.play(end_frame):
             ax.clear()
-            if pre_process is not None:
+            if pre_process is not None: # Al estilo de Basilisk mostrar solo i+=n.
                 to_show = pre_process(frame)  # TODO: Podría recibir directamente una fig, ax y retornar eso.
                 ax.imshow(to_show)
             else:
@@ -79,4 +79,7 @@ class Video:
             sleep(0.01)
 
         plt.ioff()
-        plt.show()
+
+        if not close_on_finish:
+            plt.show()
+
