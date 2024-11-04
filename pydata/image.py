@@ -134,7 +134,7 @@ class Image:
             image = self.cropped()
         correlation_map = cv2.matchTemplate(image, template, method=cv2.TM_CCORR_NORMED)
         min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(correlation_map)
-        return max_loc
+        return max_loc # TODO: warning si pasan cosas raras acá. Si distancia con anterior menor a tanto (pero habría que guardar el anterior, tal vez pasar el centro como argumento optativo junto con un sigma para comparar.).
 
     def track(self, template, search_roi=None, blur=0, factor=5):
         if search_roi:
@@ -173,16 +173,31 @@ class Image:
     def edges(self):
         return cv2.Canny(self.make_blurred_mask(), 100, 200)
 
-    def get_circle_centers(self, param1=40, param2=20, minRadius=190, maxRadius=210): 
-        circles = cv2.HoughCircles(self.edges(), cv2.HOUGH_GRADIENT, dp=1, minDist=min(self.roi[2:]), param1=param1, param2=param2, minRadius=minRadius, maxRadius=maxRadius)
+    def get_circle_centers(self): 
+        circles = cv2.HoughCircles(self.edges(), cv2.HOUGH_GRADIENT, dp=1, minDist=min(self.roi[2:]),
+                                   param1=self.edge_configurations["param1"],
+                                   param2=self.edge_configurations["param2"],
+                                   minRadius=self.edge_configurations["minRadius"],
+                                   maxRadius=self.edge_configurations["maxRadius"])
         return circles[0] if circles is not None else None # TODO: creo que acá se puede compactar este if.
 
     def center_toroid(self, use_sliders=False):
         if use_sliders: # TODO: no soy super fan de tener todo esto acá abajo. Probablemente lo encapsule en alguna otra función para que quede más prolijo (pero es puramente estético).
             fig, axes = plt.subplots(1, 3, figsize=(15, 8))
             plt.subplots_adjust(left=0.05, bottom=0.4, right=0.95, wspace=0.5)
+
+            def update_edge_configurations():
+                self.edge_configurations['N'] = int(slider_N.val)
+                self.edge_configurations['H'] = int(slider_H.val)
+                self.edge_configurations['low_mask'] = int(slider_low_mask.val)
+                self.edge_configurations['high_mask'] = int(slider_high_mask.val)
+                self.edge_configurations['param1'] = int(slider_param1.val)
+                self.edge_configurations['param2'] = int(slider_param2.val)
+                self.edge_configurations['minRadius'] = int(slider_minRadius.val)
+                self.edge_configurations['maxRadius'] = int(slider_maxRadius.val)
             
             def update(val):
+                update_edge_configurations()
                 blurred_image = self.blurred()
                 mask = self.make_blurred_mask()
                 edges = self.edges()
@@ -194,10 +209,13 @@ class Image:
                 axes[1].imshow(mask, cmap='gray')
                 axes[2].cla()
                 axes[2].imshow(edges, cmap='gray')
-                
-                for circle in circles:
-                    x, y, r = int(circle[0]), int(circle[1]), int(circle[2])
-                    axes[2].add_patch(plt.Circle((x, y), r, color='red', fill=False))
+
+                if circles is not None:
+                    for circle in circles:
+                        x, y, r = int(circle[0]), int(circle[1]), int(circle[2])
+                        axes[0].add_patch(plt.Circle((x, y), r, color='red', fill=False))
+                        axes[1].add_patch(plt.Circle((x, y), r, color='red', fill=False))
+                        axes[2].add_patch(plt.Circle((x, y), r, color='red', fill=False))
                     
                 for ax in axes:
                     ax.axis('off')
@@ -225,6 +243,7 @@ class Image:
             slider_minRadius = Slider(ax_minRadius, 'Min Radius', 0, 300, valinit=self.edge_configurations['minRadius'])
             slider_maxRadius = Slider(ax_maxRadius, 'Max Radius', 0, 300, valinit=self.edge_configurations['maxRadius'])
 
+            # TODO: for slider in sliders: slider.on_changed(update).
             slider_N.on_changed(update)
             slider_H.on_changed(update)
             slider_low_mask.on_changed(update)
@@ -235,34 +254,22 @@ class Image:
             slider_maxRadius.on_changed(update)
 
             ax_button = plt.axes([0.85, 0.03, 0.1, 0.04])
-            button = Button(ax_button, 'Print Config', color=axcolor, hovercolor='0.975')
+            ax_button_circle = plt.axes([0.65, 0.03, 0.1, 0.04])
+            button = Button(ax_button, 'Print Configurations', color=axcolor, hovercolor='0.975')
+            button_circle = Button(ax_button_circle, 'Print Circle', color=axcolor, hovercolor='0.975') # o 
 
             def print_config(event):
-                config = {
-                    'N': int(slider_N.val),
-                    'H': int(slider_H.val),
-                    'low_mask': int(slider_low_mask.val),
-                    'high_mask': int(slider_high_mask.val),
-                    'param1': int(slider_param1.val),
-                    'param2': int(slider_param2.val),
-                    'minRadius': int(slider_minRadius.val),
-                    'maxRadius': int(slider_maxRadius.val)
-                }
-                print("Current Configurations:", config)
-
+                print("Current Configurations:", self.edge_configurations)
             button.on_clicked(print_config)
 
-            def on_close(event):
-                self.edge_configurations['N'] = int(slider_N.val)
-                self.edge_configurations['H'] = int(slider_H.val)
-                self.edge_configurations['low_mask'] = int(slider_low_mask.val)
-                self.edge_configurations['high_mask'] = int(slider_high_mask.val)
-                self.edge_configurations['param1'] = int(slider_param1.val)
-                self.edge_configurations['param2'] = int(slider_param2.val)
-                self.edge_configurations['minRadius'] = int(slider_minRadius.val)
-                self.edge_configurations['maxRadius'] = int(slider_maxRadius.val)
+            def print_circle(event):
+                circles = self.get_circle_centers()
+                if circles is not None:
+                    for circle in circles:
+                        x, y, r = int(circle[0]), int(circle[1]), int(circle[2])
+                        print(f"Circle found in ({x}, {y}) with radius ({r} px).")    
+            button_circle.on_clicked(print_circle)    
 
-            fig.canvas.mpl_connect('close_event', on_close)
             update(None)
             plt.show()
 
@@ -271,7 +278,7 @@ class Image:
             center = self.roi.local_to_absolute((int(centers[0, 0]), int(centers[0, 1])))
             self.roi = self.roi.new_roi_from_center(center)
         else:
-            warnings.warn("No circle found. Try updating the configurations.") # TODO: refinar esto (tipo el mensaje).
+            warnings.warn("No circle found.") # TODO: refinar esto (tipo el mensaje).
             default_center = (self.roi[2] // 2, self.roi[3] // 2)
             center = self.roi.local_to_absolute(default_center)
             self.roi = self.roi.new_roi_from_center(center) # TODO: esta combinación de local2absolute y from_center tal vez se podrían combinar en una tercera función que haga ambas.
