@@ -18,6 +18,8 @@ class HeightMap:
         fig, axs = plt.subplots(1, 2)
         for i, angles in enumerate(self.angles):
             im = axs[i].contourf(self.coordinates.x_mesh*1e3, self.coordinates.y_mesh*1e3, self.angles[i], 100)
+            for c in im.collections: # Esto soluciona el problema de aliasing al guardar como .pdf.
+                c.set_edgecolor("face")
             cbar = fig.colorbar(im, ax=axs[i])
             cbar.set_label('Ángulo [rad]', rotation=270, labelpad=15)
             axs[i].set_xlabel('Posición x [mm]')
@@ -31,6 +33,9 @@ class HeightMap:
         if fig is None and axis is None:
             fig, axis = plt.subplots()
         im = axis.contourf(self.coordinates.x_mesh * 1e3, self.coordinates.y_mesh * 1e3, self.values * 1e3, 100)
+        for c in im.collections: # Esto soluciona el problema de aliasing al guardar como .pdf.
+            c.set_edgecolor("face")
+
         cbar = fig.colorbar(im, ax=axis)
         cbar.set_label('Altura [mm]', rotation=270, labelpad=15)
         axis.set_xlabel('Posición x [mm]')
