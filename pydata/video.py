@@ -79,7 +79,9 @@ class Video:
             sleep(0.01)
 
         plt.ioff()
-
+        sleep(0.01)
+        
         if not close_on_finish:
             plt.show()
-
+        else:
+            plt.close()
